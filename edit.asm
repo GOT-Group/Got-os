@@ -128,6 +128,9 @@ edit_main:
     cmp al, 23              ; Ctrl+W
     je .do_delword
 
+    cmp al, 11              ; Ctrl+K
+    je .do_delline
+
     cmp al, 13
     je .do_newline
     cmp al, 10
@@ -258,6 +261,58 @@ edit_main:
 
     jmp .edit_loop
 
+.do_delline:
+    ; Save old length
+    mov eax, [edit_len]
+    mov [del_old_len], eax
+
+    ; If empty, nothing
+    mov ecx, [edit_len]
+    test ecx, ecx
+    jz .edit_loop
+
+    ; Search backwards for \n (10)
+.search_nl:
+    dec ecx
+    js .no_newline
+    cmp byte [edit_buffer + ecx], 10
+    je .found_nl
+    jmp .search_nl
+
+.no_newline:
+    xor ecx, ecx
+    jmp .do_cut
+
+.found_nl:
+    test ecx, ecx
+    jz .do_cut
+    cmp byte [edit_buffer + ecx - 1], 13
+    jne .do_cut
+    dec ecx
+
+.do_cut:
+    mov [edit_len], ecx
+    mov byte [edit_buffer + ecx], 0
+
+    ; Visual feedback: backspaces
+    mov eax, [del_old_len]
+    sub eax, ecx
+    test eax, eax
+    jz .edit_loop
+    mov [del_count], eax
+
+.vis_loop_line:
+    mov al, 8
+    call serial_write_char
+    mov al, ' '
+    call serial_write_char
+    mov al, 8
+    call serial_write_char
+    dec dword [del_count]
+    jnz .vis_loop_line
+
+    jmp .edit_loop
+
 .do_clear:
     ; Zero out the buffer
     mov edi, edit_buffer
@@ -298,7 +353,7 @@ edit_save:
 
 section .data
 msg_header_1: db 13, 10, "--- edit v1.0 | Editing: ", 0
-msg_header_2: db " ---", 13, 10, "(Ctrl+S=save, Ctrl+Q=quit)", 13, 10, "(Ctrl+D=clear, Ctrl+W=del word)", 13, 10, 0
+msg_header_2: db " ---", 13, 10, "(Ctrl+S=save, Ctrl+Q=quit)", 13, 10, "(Ctrl+D=clear, Ctrl+W=del word)", 13, 10, "(Ctrl+K=del line)", 13, 10, 0
 msg_saved:    db 13, 10, "[Saved]", 13, 10, 0
 msg_cleared:  db 13, 10, "[Cleared]", 13, 10, 0
 msg_exited:   db 13, 10, "[Exited edit mode]", 13, 10, 0

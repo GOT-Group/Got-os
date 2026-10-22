@@ -164,6 +164,48 @@ parse_number:
     ret
 
 ; ================
+; print_num
+; eax = number to print (decimal)
+; ================
+print_num:
+    pusha
+
+    mov ebx, 10
+    xor ecx, ecx          ; digit count
+    mov edi, num_buffer + 31
+    mov byte [edi], 0
+
+    ; Handle zero
+    test eax, eax
+    jnz .loop
+    dec edi
+    mov byte [edi], '0'
+    jmp .print
+
+.loop:
+    xor edx, edx
+    div ebx               ; eax / 10, remainder in edx
+    add dl, '0'
+    dec edi
+    mov [edi], dl
+    inc ecx
+    test eax, eax
+    jnz .loop
+
+.print:
+    mov esi, edi
+.print_loop:
+    mov al, [esi]
+    test al, al
+    jz .done
+    call serial_write_char
+    inc esi
+    jmp .print_loop
+.done:
+    popa
+    ret
+
+; ================
 ; print_hex_byte
 ; al = byte to print as 2 hex digits
 ; ================
@@ -372,6 +414,18 @@ execute_command:
     call startswith
     test al, al
     jnz .mv
+
+    mov esi, line_buffer
+    mov edi, cmd_grep
+    call startswith
+    test al, al
+    jnz .grep
+
+    mov esi, line_buffer
+    mov edi, cmd_wc
+    call startswith
+    test al, al
+    jnz .wc
 
     mov esi, line_buffer
     mov edi, cmd_dformat
@@ -795,6 +849,230 @@ execute_command:
     call serial_print
     jmp .done
 
+.grep:
+    mov esi, line_buffer
+    add esi, 5          ; skip "grep "
+
+    ; Find space between pattern and filename
+    mov edi, esi
+.find_sp_grep:
+    mov al, [edi]
+    test al, al
+    jz .grep_usage
+    cmp al, ' '
+    je .found_sp_grep
+    inc edi
+    jmp .find_sp_grep
+.found_sp_grep:
+    mov byte [edi], 0
+    inc edi
+
+    ; Copy pattern
+    push edi
+    mov ecx, 63
+    mov edi, grep_pattern
+.copy_pat:
+    mov al, [esi]
+    test al, al
+    jz .done_pat
+    mov [edi], al
+    inc esi
+    inc edi
+    dec ecx
+    jnz .copy_pat
+.done_pat:
+    mov byte [edi], 0
+
+    ; Copy filename
+    pop esi
+    mov edi, grep_file
+    mov ecx, 63
+.copy_fname:
+    mov al, [esi]
+    test al, al
+    jz .done_fname
+    mov [edi], al
+    inc esi
+    inc edi
+    dec ecx
+    jnz .copy_fname
+.done_fname:
+    mov byte [edi], 0
+
+    ; Find file
+    mov esi, grep_file
+    call fs_find
+    cmp eax, -1
+    je .grep_notfound_file
+    call fs_read
+    cmp eax, -1
+    je .grep_notfound_file
+
+    ; Save start of buffer
+    mov [grep_buf_start], eax
+    mov esi, eax
+    mov edi, grep_pattern
+
+    ; Find position of match
+    call strstr_pos
+    test eax, eax
+    jz .grep_no_match
+    mov esi, eax             ; esi = match position
+
+    ; Go backwards to find start of line
+.back_to_line:
+    cmp esi, [grep_buf_start]
+    jle .print_line          ; reached start of buffer
+    cmp byte [esi - 1], 10   ; newline before?
+    je .print_line
+    dec esi
+    jmp .back_to_line
+
+.print_line:
+    ; Print until newline or end of buffer
+.print_loop:
+    mov al, [esi]
+    test al, al
+    jz .print_done
+    cmp al, 10               ; newline
+    je .print_done
+    cmp al, 13               ; carriage return
+    je .print_done
+    call serial_write_char
+    inc esi
+    jmp .print_loop
+
+.print_done:
+    mov al, 13
+    call serial_write_char
+    mov al, 10
+    call serial_write_char
+    jmp .done
+
+.grep_no_match:
+    mov esi, msg_grep_no_match
+    call serial_print
+    jmp .done
+
+.grep_notfound_file:
+    mov esi, msg_grep_notfound
+    call serial_print
+    jmp .done
+
+.grep_usage:
+    mov esi, msg_grep_usage
+    call serial_print
+    jmp .done
+
+.wc:
+    mov esi, line_buffer
+    add esi, 3          ; skip "wc "
+
+    ; Skip leading spaces
+.skip_wc_sp:
+    cmp byte [esi], ' '
+    jne .copy_wc_start
+    inc esi
+    jmp .skip_wc_sp
+.copy_wc_start:
+
+    ; Copy entire rest as filename
+    mov edi, wc_filename
+    mov ecx, 63
+.copy_fname_wc:
+    mov al, [esi]
+    test al, al
+    jz .done_fname_wc
+    mov [edi], al
+    inc esi
+    inc edi
+    dec ecx
+    jnz .copy_fname_wc
+.done_fname_wc:
+    mov byte [edi], 0
+
+    ; Check if filename is empty
+    cmp byte [wc_filename], 0
+    je .wc_usage
+
+    ; Find file
+    mov esi, wc_filename
+    call fs_find
+    cmp eax, -1
+    je .wc_notfound
+    call fs_read
+    cmp eax, -1
+    je .wc_notfound
+
+    ; Now eax = content pointer, ecx = size
+    mov esi, eax
+
+    ; Count lines, words, chars
+    xor ecx, ecx         ; line count
+    xor edx, edx         ; word count
+    xor edi, edi         ; char count
+    xor ebp, ebp         ; in_word flag
+
+.wc_loop:
+    mov al, [esi]
+    test al, al
+    jz .wc_done
+
+    inc edi              ; char count
+
+    cmp al, 10
+    je .wc_newline
+
+    cmp al, ' '
+    je .wc_space
+
+    test ebp, ebp
+    jnz .wc_next
+    inc edx
+    mov ebp, 1
+    jmp .wc_next
+
+.wc_space:
+    xor ebp, ebp
+    jmp .wc_next
+
+.wc_newline:
+    inc ecx
+    xor ebp, ebp
+
+.wc_next:
+    inc esi
+    jmp .wc_loop
+
+.wc_done:
+    mov esi, msg_wc_result
+    call serial_print
+    mov eax, ecx
+    call print_num
+    mov al, ' '
+    call serial_write_char
+    mov eax, edx
+    call print_num
+    mov al, ' '
+    call serial_write_char
+    mov eax, edi
+    call print_num
+    mov al, 13
+    call serial_write_char
+    mov al, 10
+    call serial_write_char
+    jmp .done
+
+.wc_notfound:
+    mov esi, msg_wc_notfound
+    call serial_print
+    jmp .done
+
+.wc_usage:
+    mov esi, msg_wc_usage
+    call serial_print
+    jmp .done
+
 .clear:
     mov esi, ansi_clear
     call serial_print
@@ -904,6 +1182,101 @@ strcmp:
     ret
 
 ; ================
+; strstr_pos
+; esi = haystack (text)
+; edi = needle (pattern)
+; returns: eax = pointer to match in haystack, or 0 if not found
+; ================
+strstr_pos:
+    pusha
+    mov [saved_needle], edi
+
+.scan:
+    mov al, [esi]
+    test al, al
+    jz .not_found
+
+    mov ebx, esi             ; candidate pointer
+    mov edi, [saved_needle]  ; reset needle
+
+.cmp_loop:
+    mov al, [edi]
+    test al, al
+    jz .found                ; needle ended = match!
+
+    mov cl, [esi]
+    cmp al, cl
+    jne .next_pos
+
+    inc esi
+    inc edi
+    jmp .cmp_loop
+
+.next_pos:
+    mov esi, ebx             ; restore to candidate
+    inc esi
+    jmp .scan
+
+.found:
+    mov [result_ptr], ebx    ; save start of match
+    popa
+    mov eax, [result_ptr]
+    ret
+
+.not_found:
+    popa
+    xor eax, eax
+    ret
+
+; ================
+; strstr_check
+; esi = haystack (text to search in)
+; edi = needle (pattern to find)
+; returns: al = 1 if found, 0 if not
+; ================
+strstr_check:
+    pusha
+
+.outer:
+    mov al, [esi]
+    test al, al
+    jz .not_found
+
+    ; Try to match needle at current position
+    push esi
+    push edi
+.inner:
+    mov al, [edi]
+    test al, al
+    jz .found              ; Reached end of needle = match
+
+    mov bl, [esi]
+    cmp al, bl
+    jne .inner_fail
+
+    inc esi
+    inc edi
+    jmp .inner
+
+.inner_fail:
+    pop edi
+    pop esi
+    inc esi
+    jmp .outer
+
+.found:
+    pop edi
+    pop esi
+    popa
+    mov al, 1
+    ret
+
+.not_found:
+    popa
+    mov al, 0
+    ret
+
+; ================
 startswith:
     pusha
 .loop:
@@ -938,14 +1311,14 @@ splash_art:
     db "    ##    ##  ##    ##     ##", 13, 10
     db "     #######   #######     ##", 13, 10
     db 13, 10
-    db "         GOT[os] v0.4", 13, 10
+    db "         GOT[os] v0.4.8", 13, 10
     db "         Booting...", 13, 10
     db 0
-msg_welcome:  db 13, 10, "GOT[os] v0.4 - shell", 13, 10, 0
+msg_welcome:  db 13, 10, "GOT[os] v0.4.8 - shell", 13, 10, 0
 msg_prompt:   db "> ", 0
 msg_unknown:  db "Unknown command. Type 'help'.", 13, 10, 0
 msg_shutdown: db "Shutting down...", 13, 10, 0
-msg_version:  db "GOT[os] v0.4", 13, 10
+msg_version:  db "GOT[os] v0.4.8", 13, 10
               db "Kernel: x86 32-bit", 13, 10
               db "Features:", 13, 10
               db "  shell, RAM filesystem, disk storage", 13, 10
@@ -972,6 +1345,13 @@ msg_cp_fail:     db "Failed to copy.", 13, 10, 0
 msg_mv_ok:       db "Renamed.", 13, 10, 0
 msg_mv_usage:    db "Usage: mv <old> <new>", 13, 10, 0
 msg_mv_fail:     db "Failed to rename.", 13, 10, 0
+msg_grep_usage:      db "Usage: grep <pattern> <file>", 13, 10, 0
+msg_grep_found:      db "Match found.", 13, 10, 0
+msg_grep_no_match:   db "No match.", 13, 10, 0
+msg_grep_notfound:   db "File not found.", 13, 10, 0
+msg_wc_result:       db "Lines: ", 0
+msg_wc_notfound:     db "File not found.", 13, 10, 0
+msg_wc_usage:        db "Usage: wc <file>", 13, 10, 0
 msg_dformat_ok:  db "Disk formatted.", 13, 10, 0
 msg_dread_hdr:   db "Hex: ", 0
 msg_dread_usage: db "Usage: dread <sector>", 13, 10, 0
@@ -1006,8 +1386,10 @@ msg_help: db "Commands:", 13, 10
           db "  dsave <file>   - save file to disk", 13, 10
           db "  dload <file>   - load file from disk", 13, 10
           db "  mv <old> <new> - rename file", 13, 10
+          db "  grep <p> <f>   - search in file", 13, 10
+          db "  wc <file>      - count lines/words/chars", 13, 10
           db "  dls            - list disk files", 13, 10
-          db "  drm <file>     - delete file from disk", 13, 10,0
+          db "  drm <file>     - delete file from disk", 13, 10,
 
 cmd_help:     db "help", 0
 cmd_version:  db "version", 0
@@ -1023,6 +1405,8 @@ cmd_edit:     db "edit ", 0
 cmd_write:    db "write ", 0
 cmd_cp:       db "cp ", 0
 cmd_mv:       db "mv ", 0
+cmd_grep:     db "grep ", 0
+cmd_wc:       db "wc ", 0
 cmd_dsave:    db "dsave ", 0
 cmd_dload:    db "dload ", 0
 cmd_dls:      db "dls", 0
@@ -1046,6 +1430,13 @@ ansi_c7:      db 27, "[37m", 0
 section .bss
 line_buffer:  resb 64
 dread_buffer: resb 512
+grep_pattern: resb 64
+grep_file:    resb 64
+grep_buf_start: resd 1
+num_buffer:   resb 32
+wc_filename:  resb 64
+saved_needle: resd 1
+result_ptr:   resd 1
 pending_action: resb 1
 pending_name:   resb 16
 line_len:     resd 1
