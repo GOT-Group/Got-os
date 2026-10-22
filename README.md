@@ -1,9 +1,11 @@
 # GOT[os]
 
 > A minimal x86 operating system written from scratch in pure assembly.
+> **Current version: v0.4.8 (Stable)**
 
 No Linux. No Unix. No GNU. Just code and curiosity.
-Shell, RAM filesystem, and text editor included. Built on a phone. 🐐
+Shell, RAM filesystem, persistent disk storage, and text editor included. Built on a phone. 🐐
+
 ---
 ## Credits
 
@@ -29,19 +31,20 @@ Named after the goat (GOT = Goat), a personal symbol of childhood.
 ## Features
 
 - **Boot:** Multiboot-compliant, boots via Limine
-- **Shell:** 22+ built-in commands
-- **Filesystem:** RAM-based (create, read, write, delete)
-- **Disk Storage:** Persistent ATA PIO driver with custom filesystem
-- **Editor:** Built-in text editor (`edit`)
-- **Hardware:** VGA, Serial I/O, PIC, IDT
+- **Shell:** 26 built-in commands
+- **Filesystem:** RAM-based + Persistent ATA PIO disk storage
+- **Editor:** Built-in text editor (`edit` v1.0) with word/line deletion
+- **Text Tools:** `grep` (search) and `wc` (count lines/words/chars)
+- **Hardware:** VGA text mode, Serial I/O, PIC, IDT
 - **Reboot:** ACPI + Triple Fault
 - **Terminal:** Full I/O via COM1
 - **Persistence:** Files survive reboot via `dsave` / `dload`
+- **Stability:** Codebase optimized for 100% stable text-based environment (GUI/PIT deferred).
 
 ---
 ## Commands
 
-### RAM Filesystem
+### RAM Filesystem & Text Tools
 | Command | Description |
 |---|---|
 | `ls` | List files in RAM |
@@ -51,7 +54,9 @@ Named after the goat (GOT = Goat), a personal symbol of childhood.
 | `rm <name>` | Delete file |
 | `cp <src> <dst>` | Copy file |
 | `mv <old> <new>` | Rename file |
-| `edit <name>` | Edit file interactively |
+| `edit <name>` | Edit file (v1.0: Ctrl+D, Ctrl+W, Ctrl+K) |
+| `grep <p> <f>` | Search for a pattern in a file |
+| `wc <file>` | Count lines, words, and chars in a file |
 
 ### Disk Storage
 | Command | Description |
@@ -91,7 +96,8 @@ Named after the goat (GOT = Goat), a personal symbol of childhood.
 - [x] v0.2 — Shell + Serial keyboard
 - [x] v0.3 — RAM filesystem + editor
 - [x] v0.4 — Persistent disk storage (ATA PIO)
-- [ ] v0.5 — Directories + more text tools
+- [x] v0.4.8 — Text tools (`grep`, `wc`), Editor v1.0, Stability update
+- [ ] v0.5 — Directories + more utilities
 - [ ] v1.0 — Stable release
 
 ---
