@@ -1,7 +1,7 @@
 # GOT[os]
 
 > A minimal x86 operating system written from scratch in pure assembly.
-> **Current version: v0.4.8 (Stable)**
+> **Current version: v0.5.0 (Stable)**
 
 No Linux. No Unix. No GNU. Just code and curiosity.
 Shell, RAM filesystem, persistent disk storage, and text editor included. Built on a phone. 🐐
@@ -31,10 +31,11 @@ Named after the goat (GOT = Goat), a personal symbol of childhood.
 ## Features
 
 - **Boot:** Multiboot-compliant, boots via Limine
-- **Shell:** 26 built-in commands
+- **Launcher (TUI):** Startup menu for easy navigation
+- **Shell:** 27 built-in commands
 - **Filesystem:** RAM-based + Persistent ATA PIO disk storage
 - **Editor:** Built-in text editor (`edit` v1.0) with word/line deletion
-- **Text Tools:** `grep` (search) and `wc` (count lines/words/chars)
+- **Text Tools:** `grep` (search), `wc` (count), and `head` (first lines)
 - **Hardware:** VGA text mode, Serial I/O, PIC, IDT
 - **Reboot:** ACPI + Triple Fault
 - **Terminal:** Full I/O via COM1
@@ -57,6 +58,7 @@ Named after the goat (GOT = Goat), a personal symbol of childhood.
 | `edit <name>` | Edit file (v1.0: Ctrl+D, Ctrl+W, Ctrl+K) |
 | `grep <p> <f>` | Search for a pattern in a file |
 | `wc <file>` | Count lines, words, and chars in a file |
+| `head <file>` | Show first 10 lines of a file |
 
 ### Disk Storage
 | Command | Description |
@@ -89,6 +91,7 @@ Named after the goat (GOT = Goat), a personal symbol of childhood.
 - **Input:** Serial terminal (COM1, 38400 baud)
 - **Storage:** ATA-compatible disk (optional, for persistent files)
 - **Bootloader:** Multiboot 1 (Limine)
+
 ---
 ## Roadmap
 
@@ -97,7 +100,8 @@ Named after the goat (GOT = Goat), a personal symbol of childhood.
 - [x] v0.3 — RAM filesystem + editor
 - [x] v0.4 — Persistent disk storage (ATA PIO)
 - [x] v0.4.8 — Text tools (`grep`, `wc`), Editor v1.0, Stability update
-- [ ] v0.5 — Directories + more utilities
+- [x] v0.5.0 — TUI Launcher + `head` command
+- [ ] v0.6.0 — Directories + more utilities
 - [ ] v1.0 — Stable release
 
 ---
