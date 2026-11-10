@@ -27,6 +27,9 @@ kmain:
     call fs_init
     mov dword [line_len], 0
     call splash
+
+    call show_launcher
+
     mov esi, msg_welcome
     call serial_print
 
@@ -245,6 +248,84 @@ serial_print:
     popa
     ret
 
+show_launcher:
+    pusha
+
+    mov esi, msg_launcher
+    call serial_print
+
+.loop_launcher:
+    call serial_read_char
+    test al, al
+    jz .loop_launcher
+
+    cmp al, 13
+    je .loop_launcher
+    cmp al, 10
+    je .loop_launcher
+
+    cmp al, '1'
+    je .go_shell
+    cmp al, '2'
+    je .go_sysinfo
+    cmp al, '3'
+    je .go_shutdown
+
+    jmp .loop_launcher
+
+.go_sysinfo:
+    mov al, 13
+    call serial_write_char
+    mov al, 10
+    call serial_write_char
+
+    mov esi, msg_sysinfo
+    call serial_print
+
+
+    xor eax, eax
+    cpuid
+    mov [cpu_vendor], ebx
+    mov [cpu_vendor + 4], edx
+    mov [cpu_vendor + 8], ecx
+    mov byte [cpu_vendor + 12], 0
+
+    mov esi, msg_cpu
+    call serial_print
+    mov esi, cpu_vendor
+    call serial_print
+    mov al, 13
+    call serial_write_char
+    mov al, 10
+    call serial_write_char
+
+
+.wait_key:
+    call serial_read_char
+    test al, al
+    jz .wait_key
+    cmp al, 13
+    je .wait_key
+    cmp al, 10
+    je .wait_key
+
+
+    mov esi, msg_launcher
+    call serial_print
+    jmp .loop_launcher
+
+.go_shutdown:
+    mov esi, msg_shutdown
+    call serial_print
+    mov dx, 0x604
+    mov ax, 0x2000
+    out dx, ax
+    jmp .loop_launcher
+
+.go_shell:
+    popa
+    ret
+
 ; ================
 ; handle_pending
 ; ================
@@ -426,6 +507,12 @@ execute_command:
     call startswith
     test al, al
     jnz .wc
+
+    mov esi, line_buffer
+    mov edi, cmd_head
+    call startswith
+    test al, al
+    jnz .head
 
     mov esi, line_buffer
     mov edi, cmd_dformat
@@ -1155,6 +1242,47 @@ execute_command:
     mov esi, ansi_c7
     call serial_print
 
+.head:
+    mov esi, line_buffer
+    add esi, 5          ; skip "head "
+    call fs_find
+    cmp eax, -1
+    je .head_notfound
+    call fs_read
+    cmp eax, -1
+    je .head_notfound
+
+    mov esi, eax         ; esi = pointer to file content
+    xor ecx, ecx         ; ecx = line counter
+
+.head_loop:
+    mov al, [esi]
+    test al, al
+    jz .head_done        ; end of file
+    cmp ecx, 10
+    jge .head_done       ; reached 10 lines
+    
+    call serial_write_char
+    cmp al, 10           ; check for newline
+    jne .head_next
+    inc ecx              ; increment line count
+
+.head_next:
+    inc esi
+    jmp .head_loop
+
+.head_done:
+    mov al, 13
+    call serial_write_char
+    mov al, 10
+    call serial_write_char
+    jmp .done
+
+.head_notfound:
+    mov esi, msg_head_notfound
+    call serial_print
+    jmp .done
+
 .done:
     popa
     ret
@@ -1201,7 +1329,7 @@ strstr_pos:
 
 .cmp_loop:
     mov al, [edi]
-    test al, al
+    test al, al 
     jz .found                ; needle ended = match!
 
     mov cl, [esi]
@@ -1311,11 +1439,24 @@ splash_art:
     db "    ##    ##  ##    ##     ##", 13, 10
     db "     #######   #######     ##", 13, 10
     db 13, 10
-    db "         GOT[os] v0.4.8", 13, 10
+    db "         GOT[os] v0.5.0", 13, 10
     db "         Booting...", 13, 10
     db 0
-msg_welcome:  db 13, 10, "GOT[os] v0.4.8 - shell", 13, 10, 0
+msg_welcome:  db 13, 10, "GOT[os] v0.5.0 - shell", 13, 10, 0
 msg_prompt:   db "> ", 0
+msg_launcher: 
+    db 27, "[2J", 27, "[H", 27, "[36m"
+    db "==================================================", 13, 10
+    db "             GOT[os] v0.5.0 Launcher", 13, 10
+    db "==================================================", 13, 10, 13, 10
+    db 27, "[33m"
+    db "  [1] Enter Shell (Terminal)", 13, 10
+    db "  [2] System Information", 13, 10
+    db "  [3] Shutdown System", 13, 10, 13, 10
+    db 27, "[36m"
+    db "==================================================", 13, 10
+    db 27, "[37m"
+    db "Select an option: ", 0
 msg_unknown:  db "Unknown command. Type 'help'.", 13, 10, 0
 msg_shutdown: db "Shutting down...", 13, 10, 0
 msg_version:  db "GOT[os] v0.4.8", 13, 10
@@ -1352,6 +1493,7 @@ msg_grep_notfound:   db "File not found.", 13, 10, 0
 msg_wc_result:       db "Lines: ", 0
 msg_wc_notfound:     db "File not found.", 13, 10, 0
 msg_wc_usage:        db "Usage: wc <file>", 13, 10, 0
+msg_head_notfound: db "File not found.", 13, 10, 0
 msg_dformat_ok:  db "Disk formatted.", 13, 10, 0
 msg_dread_hdr:   db "Hex: ", 0
 msg_dread_usage: db "Usage: dread <sector>", 13, 10, 0
@@ -1390,6 +1532,7 @@ msg_help: db "Commands:", 13, 10
           db "  wc <file>      - count lines/words/chars", 13, 10
           db "  dls            - list disk files", 13, 10
           db "  drm <file>     - delete file from disk", 13, 10,
+          db "  head <file>    - show first 10 lines", 13, 10, 0
 
 cmd_help:     db "help", 0
 cmd_version:  db "version", 0
@@ -1407,6 +1550,7 @@ cmd_cp:       db "cp ", 0
 cmd_mv:       db "mv ", 0
 cmd_grep:     db "grep ", 0
 cmd_wc:       db "wc ", 0
+cmd_head:     db "head ", 0
 cmd_dsave:    db "dsave ", 0
 cmd_dload:    db "dload ", 0
 cmd_dls:      db "dls", 0
